@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>ChromaLens membutuhkan akses kamera untuk koreksi warna real-time.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ChromaLens membutuhkan akses mikrofon jika diperlukan untuk video.</string>
 </dict>
 </plist>
