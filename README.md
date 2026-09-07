@@ -6,6 +6,7 @@
 
 ## 📋 Daftar Isi
 - [Fitur Utama](#-fitur-utama)
+- [Arsitektur Sistem & Integrasi Backend Golang](#-arsitektur-sistem--integrasi-backend-golang)
 - [Spesifikasi Lingkungan Pengujian](#-spesifikasi-lingkungan-pengujian)
 - [Panduan Instalasi](#-panduan-instalasi)
 - [Cara Menjalankan Aplikasi](#-cara-menjalankan-aplikasi)
@@ -20,6 +21,135 @@
 3. **Seleksi & Personalisasi Kondisi**: Alur onboarding seleksi kondisi untuk pengguna baru dengan sinkronisasi ke profil akun.
 4. **Kamera Adaptif Daltonization**: Kamera *live preview* dengan fragment shader (`shaders/daltonization.frag`) untuk mengompensasi spektrum warna yang hilang secara *real-time*.
 5. **Mode Offline**: Akses fitur utama tanpa ketergantungan koneksi server atau autentikasi akun.
+
+---
+
+## 🏗️ Arsitektur Sistem & Integrasi Backend Golang
+
+Aplikasi **ChromaLens** dirancang dengan arsitektur modern berlapis (*Clean Architecture* berbasis fitur) di sisi *client* Flutter, yang terhubung ke layanan **RESTful API Backend berbasis Golang** untuk pemrosesan data terpusat, serta memanfaatkan *GPU hardware acceleration* untuk pemrosesan citra kamera *on-device*.
+
+### 1. Diagram Arsitektur Tingkat Tinggi (High-Level System Diagram)
+
+```mermaid
+flowchart TB
+    subgraph Client ["📱 Client Tier: Flutter Mobile App (Android / iOS)"]
+        subgraph UI ["Presentation Layer (Flutter UI & BLoC)"]
+            Screens["Screens (Auth, Camera, Test, Profile, Condition)"]
+            Blocs["BLoC State Management (Auth, Colorblind, Condition, Profile)"]
+        end
+
+        subgraph CoreApp ["Domain & Data Layer (Clean Architecture)"]
+            UseCases["Use Cases (Business Rules)"]
+            Repos["Repositories & Data Sources"]
+            LocalStore["Local Storage (SharedPreferences / TokenStorage)"]
+        end
+
+        subgraph GPULayer ["On-Device GPU Pipeline"]
+            CamFeed["CameraX / Native Video Stream"]
+            Shader["GLSL Fragment Shader (shaders/daltonization.frag)\nLMS Daltonization Algorithm"]
+            LiveCanvas["Live Color-Corrected Render"]
+        end
+    end
+
+    subgraph Network ["🌐 Network & Gateway Tier"]
+        HTTPS["Secure HTTPS / TLS Channel"]
+        Interceptor["Dio HTTP Client + AuthInterceptor (JWT Bearer Token)"]
+    end
+
+    subgraph Backend ["⚙️ Backend Tier: Golang RESTful API Service"]
+        Router["HTTP Router / Engine (Gin / Fiber / Chi)"]
+        JWTMiddleware["Auth Middleware (JWT Validation & Token Refresh)"]
+
+        subgraph Modules ["Golang Business Logic Modules"]
+            AuthMod["Auth Service (Login, Register, Google OAuth2)"]
+            UserMod["User & Condition Service (Profile, Preferences)"]
+            TestMod["Colorblind Test Service (Ishihara Evaluation & History)"]
+        end
+
+        DBAccess["Data Access Layer (GORM / SQLx)"]
+    end
+
+    subgraph StorageTier ["🗄️ Database Tier"]
+        SQLDB[("Relational Database\nPostgreSQL / MySQL")]
+    end
+
+    %% Client Internal Connections
+    Screens --> Blocs
+    Blocs --> UseCases
+    UseCases --> Repos
+    Repos --> LocalStore
+    Repos --> Interceptor
+    CamFeed --> Shader --> LiveCanvas
+
+    %% Client to Network
+    Interceptor --> HTTPS
+
+    %% Network to Backend
+    HTTPS --> Router
+    Router --> JWTMiddleware
+    JWTMiddleware --> Modules
+    AuthMod --> DBAccess
+    UserMod --> DBAccess
+    TestMod --> DBAccess
+    DBAccess --> SQLDB
+```
+
+---
+
+### 2. Alur Pembagian Beban Kerja (Hybrid Architecture)
+
+Sistem menggunakan strategi komputasi hibrida:
+- **Komputasi Grafis Lokal (On-Device GPU)**:
+  Koreksi warna pada kamera dilakukan sepenuhnya di sisi perangkat menggunakan **OpenGL/Vulkan Fragment Shader (`daltonization.frag`)**. Hal ini menjamin performa tinggi (60 FPS tanpa latensi jaringan) dan menjaga privasi visual pengguna.
+- **Komputasi Bisnis & Autentikasi (Backend Golang)**:
+  Manajemen kredensial pengguna, enkripsi kata sandi (Bcrypt), verifikasi JWT, audit tes Ishihara, dan penyimpanan riwayat medis pengguna ditangani secara aman oleh **Golang Backend**.
+
+---
+
+### 3. Kontrak Endpoint API Backend Golang
+
+Backend Golang menyediakan endpoint RESTful dengan format payload JSON standar:
+
+| Endpoint | Method | Fungsi & Modul | Autentikasi |
+| :--- | :---: | :--- | :---: |
+| `/api/v1/auth/login` | `POST` | Autentikasi pengguna (email & password) -> Mengembalikan Access & Refresh Token | Publik |
+| `/api/v1/auth/register` | `POST` | Pendaftaran akun baru | Publik |
+| `/api/v1/auth/google` | `POST` | Verifikasi ID token Google OAuth2 & integrasi akun | Publik |
+| `/api/v1/auth/refresh-token` | `POST` | Pembaruan Access Token yang kedaluwarsa | Refresh Token |
+| `/api/v1/auth/password/forgot` | `POST` | Permintaan kode reset password via email | Publik |
+| `/api/v1/auth/password/verify-code`| `POST` | Validasi kode verifikasi OTP reset password | Publik |
+| `/api/v1/auth/password/reset` | `POST` | Reset password dengan kode verifikasi | Publik |
+| `/api/v1/user/profile` | `GET` | Mengambil data profil pengguna & jenis kondisi penglihatan | Bearer JWT |
+| `/api/v1/user/profile` | `PUT` | Memperbarui nama tampilan atau avatar | Bearer JWT |
+| `/api/v1/user/condition` | `PUT` | Menyimpan jenis kondisi penglihatan terpilih | Bearer JWT |
+| `/api/v1/user/settings` | `PATCH` | Memperbarui preferensi notifikasi dan bahasa | Bearer JWT |
+| `/api/v1/tests/ishihara/plates` | `GET` | Mengambil daftar lempeng tes Ishihara aktif | Bearer JWT |
+| `/api/v1/tests/ishihara/submit` | `POST` | Mengirim jawaban tes untuk evaluasi klinis | Bearer JWT |
+| `/api/v1/tests/latest` | `GET` | Mengambil hasil evaluasi tes buta warna terbaru | Bearer JWT |
+| `/api/v1/tests/history` | `GET` | Mengambil riwayat pengujian buta warna sebelumnya | Bearer JWT |
+
+---
+
+### 4. Format Respons Standar API (Envelope Pattern)
+
+Semua respons dari backend Golang menggunakan pola format terpadu:
+
+```json
+{
+  "success": true,
+  "message": "Operasi berhasil",
+  "data": {
+    "access_token": "eyJhbGciOi...",
+    "refresh_token": "eyJhbGciOi...",
+    "user": {
+      "id": 1,
+      "email": "user@chromalens.app",
+      "name": "ChromaLens User",
+      "color_vision_type": "deuteranopia"
+    }
+  }
+}
+```
 
 ---
 
