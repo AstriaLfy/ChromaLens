@@ -81,14 +81,13 @@ class TokenStorage {
 
   bool hasCompletedCondition({String? email}) {
     final userEmail = (email != null && email.isNotEmpty) ? email : getUserEmail();
-    if (userEmail != null && userEmail.isNotEmpty) {
-      final completed = _prefs.getBool('condition_completed_$userEmail');
-      if (completed == true) return true;
-      final savedType = _prefs.getString('user_condition_type_$userEmail');
-      if (savedType != null && savedType.isNotEmpty) return true;
-    }
-    final condition = getConditionType();
-    return condition != null && condition.isNotEmpty;
+    if (userEmail == null || userEmail.isEmpty) return false;
+
+    final completed = _prefs.getBool('condition_completed_$userEmail');
+    if (completed == true) return true;
+
+    final savedType = _prefs.getString('user_condition_type_$userEmail');
+    return savedType != null && savedType.isNotEmpty;
   }
 
   Future<void> restoreUserSession(String email) async {
@@ -150,6 +149,8 @@ class TokenStorage {
   }
 
   Future<void> clearTokens() async {
+    final userEmail = getUserEmail();
+
     await _prefs.remove(_keyAccessToken);
     await _prefs.remove(_keyRefreshToken);
     await _prefs.remove(_keyUserId);
@@ -158,5 +159,12 @@ class TokenStorage {
     await _prefs.remove(_keyConditionType);
     await _prefs.remove(_keyConditionDescription);
     await _prefs.remove(_keyLastTestResult);
+
+    if (userEmail != null && userEmail.isNotEmpty) {
+      await _prefs.remove('condition_completed_$userEmail');
+      await _prefs.remove('user_condition_type_$userEmail');
+      await _prefs.remove('user_condition_desc_$userEmail');
+      await _prefs.remove('user_test_result_$userEmail');
+    }
   }
 }

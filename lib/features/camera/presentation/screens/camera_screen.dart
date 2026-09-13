@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/di/injection_container.dart';
+import '../../../../core/storage/token_storage.dart';
 import '../../data/utils/color_vision_filters.dart';
 import '../../domain/models/color_vision_filter.dart';
 import '../../domain/models/color_vision_type.dart';
@@ -28,13 +30,18 @@ class _CameraScreenState extends State<CameraScreen>
   bool _isTorchOn = false;
   bool _isTorchAvailable = false;
   bool _isInitializing = false;
+  bool _isWhiteBalanceLocked = false;
 
-  ColorVisionFilter _activeFilter = ColorVisionFilters.deuteranopia;
+  late ColorVisionFilter _activeFilter;
   final double _intensity = 0.85;
 
   @override
   void initState() {
     super.initState();
+    final storedType = sl<TokenStorage>().getConditionType();
+    final visionType = ColorVisionFilters.resolveFromStoredString(storedType);
+    _activeFilter = ColorVisionFilters.getFilter(visionType);
+
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestCameraPermission();
@@ -157,6 +164,25 @@ class _CameraScreenState extends State<CameraScreen>
       await _controller!.setFlashMode(next ? FlashMode.torch : FlashMode.off);
       if (mounted) {
         setState(() => _isTorchOn = next);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _toggleWhiteBalanceLock() async {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+
+    try {
+      final next = !_isWhiteBalanceLocked;
+      if (next) {
+        // Lock focus and exposure to stabilize camera (closest WB lock available)
+        await _controller!.setFocusMode(FocusMode.locked);
+        await _controller!.setExposureMode(ExposureMode.locked);
+      } else {
+        await _controller!.setFocusMode(FocusMode.auto);
+        await _controller!.setExposureMode(ExposureMode.auto);
+      }
+      if (mounted) {
+        setState(() => _isWhiteBalanceLocked = next);
       }
     } catch (_) {}
   }
@@ -363,9 +389,7 @@ class _CameraScreenState extends State<CameraScreen>
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          _activeFilter.type == ColorVisionType.deuteranopia
-                              ? 'Penyesuaian Deuteranomaly'
-                              : 'Penyesuaian ${_activeFilter.shortName}',
+                          'Penyesuaian ${_activeFilter.shortName}',
                           style: const TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w600,
@@ -468,6 +492,55 @@ class _CameraScreenState extends State<CameraScreen>
               ),
             ),
           ),
+
+          // 3b. Lock White Balance toggle — visible only in assist mode
+          if (!_isOriginalMode)
+            Positioned(
+              bottom: 168,
+              right: 16,
+              child: GestureDetector(
+                onTap: _toggleWhiteBalanceLock,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _isWhiteBalanceLocked
+                        ? AppColors.brandPurple.withValues(alpha: 0.85)
+                        : Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: _isWhiteBalanceLocked
+                          ? AppColors.brandPurple
+                          : Colors.white.withValues(alpha: 0.15),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _isWhiteBalanceLocked
+                            ? Icons.lock_rounded
+                            : Icons.lock_open_rounded,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 5),
+                      const Text(
+                        'WB Lock',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
           // 4. Bottom Control Dock (White Background - Flash, Shutter, Pengenalan warna)
           Positioned(

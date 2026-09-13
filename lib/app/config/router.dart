@@ -10,6 +10,7 @@ import '../../features/colorblind_test/domain/entities/test_result_entity.dart';
 import '../../features/colorblind_test/presentation/screens/colorblind_test_screen.dart';
 import '../../features/colorblind_test/presentation/screens/test_result_screen.dart';
 import '../../features/navigation/presentation/screens/main_navigation_shell.dart';
+import '../../features/select_condition/presentation/screens/input_manual_golongan_screen.dart';
 import '../../features/select_condition/presentation/screens/select_condition_screen.dart';
 
 import '../../core/di/injection_container.dart';
@@ -24,6 +25,7 @@ class AppRoutes {
   static const String verifyCode = '/verify_code';
   static const String resetPassword = '/reset_password';
   static const String selectCondition = '/select_condition';
+  static const String manualSelect = '/manual_select';
   static const String colorblindTest = '/colorblind_test';
   static const String testResult = '/test_result';
   static const String home = '/home';
@@ -67,6 +69,11 @@ class AppRoutes {
       case selectCondition:
         return MaterialPageRoute(
           builder: (_) => const SelectConditionScreen(),
+          settings: settings,
+        );
+      case manualSelect:
+        return MaterialPageRoute(
+          builder: (_) => const InputManualGolonganScreen(),
           settings: settings,
         );
       case colorblindTest:

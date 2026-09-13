@@ -85,8 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
           final tokenStorage = sl<TokenStorage>();
           final email = state.user.email;
-          final hasCondition = tokenStorage.hasCompletedCondition(email: email) ||
-              (state.user.colorVisionType != null && state.user.colorVisionType!.isNotEmpty);
+          final hasCondition = tokenStorage.hasCompletedCondition(email: email);
 
           if (hasCondition) {
             Navigator.pushReplacementNamed(context, '/home');

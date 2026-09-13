@@ -82,8 +82,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           );
           if (_isGoogleAction) {
             final tokenStorage = sl<TokenStorage>();
-            final hasCondition = tokenStorage.hasCompletedCondition(email: state.user.email) ||
-                (state.user.colorVisionType != null && state.user.colorVisionType!.isNotEmpty);
+            final hasCondition = tokenStorage.hasCompletedCondition(email: state.user.email);
             if (hasCondition) {
               Navigator.pushReplacementNamed(context, '/home');
             } else {

@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'color_vision_type.dart';
 
 /// Data model representing a color vision transformation filter.
-/// Contains display metadata and a 3x3 linear Daltonization transformation matrix.
+/// Contains display metadata, a 3x3 linear transformation matrix,
+/// and optional achromatopsia mode flags.
 class ColorVisionFilter {
   final ColorVisionType type;
   final String name;
@@ -12,6 +13,13 @@ class ColorVisionFilter {
   final String description;
   final List<double> matrix;
 
+  /// Whether this filter uses grayscale conversion instead of matrix multiplication.
+  final bool isAchromat;
+
+  /// Blend ratio between original color and grayscale (0.0–1.0).
+  /// Only used when [isAchromat] is true. Defaults to 1.0 (full grayscale).
+  final double achromatBlendRatio;
+
   const ColorVisionFilter({
     required this.type,
     required this.name,
@@ -19,9 +27,10 @@ class ColorVisionFilter {
     required this.subtitle,
     required this.description,
     required this.matrix,
+    this.isAchromat = false,
+    this.achromatBlendRatio = 1.0,
   });
 
-  /// Standard 3x3 Identity matrix (Normal View - 0% effect)
   static const List<double> identityMatrix = <double>[
     1.0, 0.0, 0.0,
     0.0, 1.0, 0.0,
@@ -45,7 +54,7 @@ class ColorVisionFilter {
     });
   }
 
-  /// Converts a 3x3 matrix (9 elements) to a 4x5 ColorFilter matrix (20 elements) for fallback.
+  /// Converts a 3x3 matrix (9 elements) to a 4x5 ColorFilter matrix (20 elements).
   static List<double> toColorMatrix4x5(List<double> mat3x3) {
     return <double>[
       mat3x3[0], mat3x3[1], mat3x3[2], 0.0, 0.0,
@@ -68,36 +77,85 @@ class ColorVisionFilter {
         : 1.055 * math.pow(c, 1.0 / 2.4).toDouble() - 0.055;
   }
 
-  /// Evaluates an sRGB pixel [r, g, b] (values in [0.0, 1.0]) through the full Daltonization pipeline:
-  /// 1. Decode sRGB -> Linear
-  /// 2. Linear matrix multiplication (with [intensity] interpolation)
-  /// 3. Encode Linear -> sRGB
-  /// 4. Clamp output strictly to [0.0, 1.0]
+  /// Evaluates an sRGB pixel [r, g, b] (values in [0.0, 1.0]) through the full pipeline:
+  /// 1. Decode sRGB → Linear
+  /// 2. Apply transformation (matrix or grayscale+contrast)
+  /// 3. Encode Linear → sRGB
+  /// 4. Clamp output to [0.0, 1.0]
   List<double> evaluateRgb(double r, double g, double b, double intensity) {
-    final m = getMatrixWithIntensity(intensity);
+    final clampedIntensity = intensity.clamp(0.0, 1.0);
+
+    if (type == ColorVisionType.normal || clampedIntensity <= 0.0) {
+      return [r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)];
+    }
 
     final rLin = srgbToLinear(r.clamp(0.0, 1.0));
     final gLin = srgbToLinear(g.clamp(0.0, 1.0));
     final bLin = srgbToLinear(b.clamp(0.0, 1.0));
 
-    final rDaltonLin = m[0] * rLin + m[1] * gLin + m[2] * bLin;
-    final gDaltonLin = m[3] * rLin + m[4] * gLin + m[5] * bLin;
-    final bDaltonLin = m[6] * rLin + m[7] * gLin + m[8] * bLin;
+    List<double> processedLin;
 
-    final rOut = linearToSrgb(rDaltonLin).clamp(0.0, 1.0);
-    final gOut = linearToSrgb(gDaltonLin).clamp(0.0, 1.0);
-    final bOut = linearToSrgb(bDaltonLin).clamp(0.0, 1.0);
+    if (isAchromat) {
+      processedLin = _evaluateAchromat(rLin, gLin, bLin, clampedIntensity);
+    } else {
+      processedLin = _evaluateMatrix(rLin, gLin, bLin, clampedIntensity);
+    }
 
-    return [rOut, gOut, bOut];
+    return [
+      linearToSrgb(processedLin[0]).clamp(0.0, 1.0),
+      linearToSrgb(processedLin[1]).clamp(0.0, 1.0),
+      linearToSrgb(processedLin[2]).clamp(0.0, 1.0),
+    ];
   }
 
-  /// Creates a fallback Flutter [ColorFilter] using 4x5 affine matrix transformations
-  /// at a specified severity [intensity] (0.0 to 1.0).
+  List<double> _evaluateMatrix(
+    double rLin, double gLin, double bLin, double intensity,
+  ) {
+    final m = getMatrixWithIntensity(intensity);
+
+    final rProc = m[0] * rLin + m[1] * gLin + m[2] * bLin;
+    final gProc = m[3] * rLin + m[4] * gLin + m[5] * bLin;
+    final bProc = m[6] * rLin + m[7] * gLin + m[8] * bLin;
+
+    return [rProc, gProc, bProc];
+  }
+
+  List<double> _evaluateAchromat(
+    double rLin, double gLin, double bLin, double intensity,
+  ) {
+    // ITU-R BT.709 luminance
+    final yLin = 0.2126 * rLin + 0.7152 * gLin + 0.0722 * bLin;
+
+    // Grayscale with contrast boost (the matrix encodes the contrast boost)
+    final m = getMatrixWithIntensity(intensity);
+    final boostedY = m[0] * yLin; // diagonal element carries contrast scale
+
+    // Blend between original color and boosted grayscale
+    final blendRatio = achromatBlendRatio * intensity;
+    final resultR = rLin + (boostedY - rLin) * blendRatio;
+    final resultG = gLin + (boostedY - gLin) * blendRatio;
+    final resultB = bLin + (boostedY - bLin) * blendRatio;
+
+    return [resultR, resultG, resultB];
+  }
+
+  /// Creates a fallback Flutter [ColorFilter] using 4x5 affine matrix.
   ColorFilter getColorFilterWithIntensity(double intensity) {
+    if (isAchromat) {
+      // Grayscale matrix for ColorFilter fallback
+      final m = getMatrixWithIntensity(intensity);
+      final contrastDiag = m[0];
+      final grayMatrix = <double>[
+        contrastDiag * 0.2126, contrastDiag * 0.7152, contrastDiag * 0.0722, 0.0, 0.0,
+        contrastDiag * 0.2126, contrastDiag * 0.7152, contrastDiag * 0.0722, 0.0, 0.0,
+        contrastDiag * 0.2126, contrastDiag * 0.7152, contrastDiag * 0.0722, 0.0, 0.0,
+        0.0, 0.0, 0.0, 1.0, 0.0,
+      ];
+      return ColorFilter.matrix(grayMatrix);
+    }
     return ColorFilter.matrix(toColorMatrix4x5(getMatrixWithIntensity(intensity)));
   }
 
-  /// Creates default full-intensity Flutter [ColorFilter] fallback.
   ColorFilter get colorFilter =>
       ColorFilter.matrix(toColorMatrix4x5(matrix));
 }

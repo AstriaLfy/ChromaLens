@@ -54,7 +54,7 @@ class ModeInfoSheet extends StatelessWidget {
                     currentFilter.name,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 15,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
                   ),

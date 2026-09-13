@@ -34,6 +34,25 @@ extension ColorblindTypeExtension on ColorblindType {
       orElse: () => ColorblindType.normal,
     );
   }
+
+  static ColorblindType fromManualId(String id) {
+    switch (id) {
+      case 'protanopia':
+      case 'protanomali':
+        return ColorblindType.protanopia;
+      case 'deuteranopia':
+      case 'deuteranomali':
+        return ColorblindType.deuteranopia;
+      case 'tritanopia':
+      case 'tritanomali':
+        return ColorblindType.tritanopia;
+      case 'akromatopsia_sebagian':
+      case 'akromatopsia_lengkap':
+        return ColorblindType.monochromacy;
+      default:
+        return ColorblindType.normal;
+    }
+  }
 }
 
 class ColorblindConditionEntity extends Equatable {
